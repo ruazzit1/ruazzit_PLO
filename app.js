@@ -8,6 +8,9 @@ import mongoose from "mongoose";
 import session from "express-session";
 import passport from "passport";
 import passportLocalMongoose from "passport-local-mongoose";
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import findOrCreate from "mongoose-findorcreate";
+
 const app = express();
 app.set('view engine', 'ejs');
 app.use(express.static('public'));
@@ -22,16 +25,50 @@ app.use(passport.initialize());//passport for clients
 //end of basic setup
 console.log("This is the hidden key: " + process.env.API_KEY); // Lien ket toi .env thanh cong
 mongoose.connect('mongodb://127.0.0.1:27017/userDB', { useNewUrlParser: true }); //Connect to MongoDB
-const userSchema = mongoose.Schema({username: String, password: String}); //Create new Schema for users table.
+const userSchema = mongoose.Schema({username: String, password: String, googleId: String}); //Create new Schema for users table.
 userSchema.plugin(passportLocalMongoose);//passport Local Mongoose will encrypt DB via this plugin
+userSchema.plugin(findOrCreate);//Google strategy and mongoose use it to access MongoDB
 const User2 = mongoose.model('user', userSchema); //Create a model attach with userSchema
 passport.use(User2.createStrategy());//passport Strategy to create user
-passport.serializeUser(User2.serializeUser())//control users cookies
-passport.deserializeUser(User2.deserializeUser())//control users cookies
+passport.serializeUser(function(user, cb) {
+    process.nextTick(function() {
+      return cb(null, {
+        id: user.id,
+        username: user.username,
+        picture: user.picture
+      });
+    });
+  });
+  
+  passport.deserializeUser(function(user, cb) {
+    process.nextTick(function() {
+      return cb(null, user);
+    });
+  });
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://127.0.0.1:3000/auth/google/ruazzit",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    User2.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
+
+
+
 
 app.get("/", function (req,res) {
 res.render("home");
 }) //Home page
+app.get("/auth/google", passport.authenticate('google', { scope: ["profile"] }))// When user click on the button authenticate by using Google this route to the page of Google authentication.
+app.get('/auth/google/ruazzit',passport.authenticate('google', { failureRedirect: '/login' }), function(req, res) { 
+    res.redirect('/secrets'); // Successful authentication, redirect home.
+  });
 app.get("/register", function (req,res) {
     res.render("register");
     })
